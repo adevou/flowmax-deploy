@@ -1,0 +1,473 @@
+services:
+  # PostgreSQL Database - Primary data store
+  postgres:
+    image: postgres:15-alpine
+    container_name: flowmax-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=flowmax
+      - POSTGRES_USER=${POSTGRES_USER:-flowmax}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-FmX2024PgSecureK9xQ7mN3pL}
+      - POSTGRES_HOST_AUTH_METHOD=md5
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=512MB"
+      - "-c"
+      - "work_mem=16MB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "wal_buffers=8MB"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backup:/backup
+    restart: unless-stopped
+    networks:
+      - flowmax-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowmax"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and real-time state
+  redis:
+    image: redis:7-alpine
+    container_name: flowmax-redis
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --save "" --appendonly no
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - flowmax-network
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+        reservations:
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # Main Queue Server - Core backend API with PostgreSQL
+  server:
+    image: liksoft/flowmax-server:8.4.0
+    container_name: flowmax-server
+    ports:
+      - "4000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - COMPANY_NAME=${COMPANY_NAME:-FlowMax}
+      - BASE_URL=${BASE_URL:-https://fmapi.hdl.tg}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - NODE_OPTIONS=--max-old-space-size=512
+      # PostgreSQL Configuration
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-flowmax}:${POSTGRES_PASSWORD:-FmX2024PgSecureK9xQ7mN3pL}@postgres:5432/flowmax
+      - DATABASE_TYPE=postgres
+      - USE_DATABASE=true
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=flowmax
+      - DATABASE_USER=${POSTGRES_USER:-flowmax}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-FmX2024PgSecureK9xQ7mN3pL}
+      - DATABASE_SSL=false
+      - DATABASE_POOL_MIN=2
+      - DATABASE_POOL_MAX=10
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=flowmax
+      - DB_USER=${POSTGRES_USER:-flowmax}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-FmX2024PgSecureK9xQ7mN3pL}
+      - DB_SSL=false
+      # Redis configuration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ENABLE_REDIS=${ENABLE_REDIS:-true}
+      - ENABLE_PERSISTENCE=${ENABLE_PERSISTENCE:-true}
+      # SMS Configuration
+      - SMS_ENABLED=${SMS_ENABLED:-false}
+      - SMS_API_KEY=${SMS_API_KEY}
+      - SMS_API_SECRET=${SMS_API_SECRET}
+      - SMS_SENDER_ID=${SMS_SENDER_ID:-FlowMax}
+      - SMS_API_ENDPOINT=https://extranet.nghcorp.net/api/send-sms
+      # Security
+      - SESSION_SECRET=${SESSION_SECRET:-your-secret-key-here-change-in-production}
+      - JWT_SECRET=${JWT_SECRET:-your-jwt-secret-here-change-in-production}
+      - TZ=${TZ:-UTC}
+      # GDPR Compliance
+      - GDPR_ENABLED=${GDPR_ENABLED:-true}
+      - GDPR_RETENTION_DAYS=${GDPR_RETENTION_DAYS:-1}
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks:
+      - flowmax-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Guichet Web Next - Modern Agent Interface
+  guichet-web-next:
+    image: liksoft/flowmax-guichet-web-next:8.4.0
+    container_name: flowmax-guichet-web-next
+    ports:
+      - "4001:3000"
+    environment:
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=256
+      - NEXT_PUBLIC_SERVER_URL=${NEXT_PUBLIC_SERVER_URL:-https://fmapi.hdl.tg}
+      - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-wss://fmapi.hdl.tg}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://fmapi.hdl.tg}
+      - NEXT_PUBLIC_COMPANY_NAME=${COMPANY_NAME:-FlowMax}
+      - TZ=${TZ:-UTC}
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - flowmax-network
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # Admin Next - Modern Administration Interface
+  admin-next:
+    image: liksoft/flowmax-admin-next:8.4.0
+    container_name: flowmax-admin-next
+    ports:
+      - "4002:3000"
+    environment:
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=256
+      - NEXT_PUBLIC_SERVER_URL=${NEXT_PUBLIC_SERVER_URL:-https://fmapi.hdl.tg}
+      - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-wss://fmapi.hdl.tg}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://fmapi.hdl.tg}
+      - NEXT_PUBLIC_COMPANY_NAME=${COMPANY_NAME:-FlowMax}
+      - TZ=${TZ:-UTC}
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - flowmax-network
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # Tracker Next - Customer Tracking PWA
+  tracker-next:
+    image: liksoft/flowmax-tracker-next:8.4.0
+    container_name: flowmax-tracker-next
+    ports:
+      - "4003:3000"
+    environment:
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=256
+      - NEXT_PUBLIC_SERVER_URL=${NEXT_PUBLIC_SERVER_URL:-https://fmapi.hdl.tg}
+      - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-wss://fmapi.hdl.tg}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://fmapi.hdl.tg}
+      - NEXT_PUBLIC_COMPANY_NAME=${COMPANY_NAME:-FlowMax}
+      - TZ=${TZ:-UTC}
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - flowmax-network
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # Kiosk Web - Ticket Generation Interface
+  kiosk-web:
+    image: liksoft/flowmax-kiosk-web:8.4.0
+    container_name: flowmax-kiosk-web
+    ports:
+      - "4004:80"
+    environment:
+      - API_BASE_URL=${API_BASE_URL:-https://fmapi.hdl.tg}
+      - WS_BASE_URL=${WS_BASE_URL:-wss://fmapi.hdl.tg}
+      - BASE_URL=${BASE_URL:-https://fmapi.hdl.tg}
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - flowmax-network
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # Display Web - Public Display Screens
+  display-web:
+    image: liksoft/flowmax-display-web:8.4.0
+    container_name: flowmax-display-web
+    ports:
+      - "4005:80"
+    environment:
+      - API_BASE_URL=${API_BASE_URL:-https://fmapi.hdl.tg}
+      - WS_BASE_URL=${WS_BASE_URL:-wss://fmapi.hdl.tg}
+      - BASE_URL=${BASE_URL:-https://fmapi.hdl.tg}
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - flowmax-network
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # Admin Web - Legacy Admin Interface (optional)
+  admin-web:
+    image: liksoft/flowmax-admin-web:8.4.0
+    container_name: flowmax-admin-web
+    ports:
+      - "4006:80"
+    environment:
+      - API_BASE_URL=${API_BASE_URL:-https://fmapi.hdl.tg}
+      - WS_BASE_URL=${WS_BASE_URL:-wss://fmapi.hdl.tg}
+      - BASE_URL=${BASE_URL:-https://fmapi.hdl.tg}
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - flowmax-network
+    profiles:
+      - legacy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # Guichet Web - Legacy Agent Interface (optional)
+  guichet-web:
+    image: liksoft/flowmax-guichet-web:8.4.0
+    container_name: flowmax-guichet-web
+    ports:
+      - "4007:80"
+    environment:
+      - API_BASE_URL=${API_BASE_URL:-https://fmapi.hdl.tg}
+      - WS_BASE_URL=${WS_BASE_URL:-wss://fmapi.hdl.tg}
+      - BASE_URL=${BASE_URL:-https://fmapi.hdl.tg}
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - flowmax-network
+    profiles:
+      - legacy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # Admin - Desktop Admin Interface (Electron-based)
+  admin:
+    image: liksoft/flowmax-admin:8.4.0
+    container_name: flowmax-admin
+    ports:
+      - "4008:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - flowmax-network
+    profiles:
+      - legacy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # Adminer - PostgreSQL Web Administration (optional)
+  adminer:
+    image: adminer:latest
+    container_name: flowmax-adminer
+    ports:
+      - "18080:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+      - ADMINER_DESIGN=pepa-linha
+    depends_on:
+      - postgres
+    networks:
+      - flowmax-network
+    restart: unless-stopped
+    profiles:
+      - tools
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+
+  # Nginx Reverse Proxy with SSL (for production)
+  nginx:
+    image: nginx:alpine
+    container_name: flowmax-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+      - ./nginx/sites-enabled:/etc/nginx/sites-enabled:ro
+    networks:
+      - flowmax-network
+    depends_on:
+      - server
+      - guichet-web-next
+      - admin-next
+      - tracker-next
+      - kiosk-web
+      - display-web
+    restart: unless-stopped
+    profiles:
+      - production
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # Backup Service (optional)
+  backup:
+    image: postgres:15-alpine
+    container_name: flowmax-backup
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=flowmax
+      - POSTGRES_USER=${POSTGRES_USER:-flowmax}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-FmX2024PgSecureK9xQ7mN3pL}
+    volumes:
+      - ./backup:/backup
+      - ./scripts:/scripts
+    networks:
+      - flowmax-network
+    depends_on:
+      - postgres
+    profiles:
+      - backup
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      "while true; do
+        echo 'Running backup...'
+        PGPASSWORD=$$POSTGRES_PASSWORD pg_dump -h $$POSTGRES_HOST -U $$POSTGRES_USER -d $$POSTGRES_DB > /backup/flowmax_backup_$$(date +%Y%m%d_%H%M%S).sql
+        echo 'Backup completed'
+        sleep 86400
+      done"
+
+networks:
+  flowmax-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
