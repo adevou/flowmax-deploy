@@ -2,11 +2,11 @@ services:
   # PostgreSQL Database - Primary data store
   postgres:
     image: postgres:16-alpine
-    container_name: flowmax-postgres
+    container_name: flowmax-postgres-prod
     ports:
       - "5433:5432"
     environment:
-      - POSTGRES_DB=flowmax
+      - POSTGRES_DB=flowmax-prod
       - POSTGRES_USER=${POSTGRES_USER:-flowmax_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-flowmax_secret_2024}
       - POSTGRES_HOST_AUTH_METHOD=md5
@@ -30,7 +30,7 @@ services:
       - ./backup:/backup
     restart: unless-stopped
     networks:
-      - flowmax-network
+      - flowmax-prod-network
     deploy:
       resources:
         limits:
@@ -46,7 +46,7 @@ services:
   # Redis for caching and real-time state
   redis:
     image: redis:7-alpine
-    container_name: flowmax-redis
+    container_name: flowmax-redis-prod
     ports:
       - "6379:6379"
     command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
@@ -54,7 +54,7 @@ services:
       - redis-data:/data
     restart: unless-stopped
     networks:
-      - flowmax-network
+      - flowmax-prod-network
     deploy:
       resources:
         limits:
@@ -70,7 +70,7 @@ services:
   # Main Queue Server - Core backend API with PostgreSQL and Redis
   server:
     image: liksoft/flowmax-server:9.1.0
-    container_name: flowmax-server
+    container_name: flowmax-server-prod
     ports:
       - "3000:3000"
     environment:
@@ -82,8 +82,8 @@ services:
       - NODE_OPTIONS=--max-old-space-size=512
       # PostgreSQL Configuration
       - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_NAME=flowmax
+      - DATABASE_PORT=5433
+      - DATABASE_NAME=flowmax-prod
       - DATABASE_USER=${POSTGRES_USER:-flowmax_user}
       - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-flowmax_secret_2024}
       - DATABASE_SSL=false
@@ -125,7 +125,7 @@ services:
       retries: 3
       start_period: 90s
     networks:
-      - flowmax-network
+      - flowmax-prod-network
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,7 +133,7 @@ services:
         condition: service_healthy
 
 networks:
-  flowmax-network:
+  flowmax-prod-network:
     driver: bridge
 
 volumes:
