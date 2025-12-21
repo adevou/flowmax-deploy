@@ -1,8 +1,7 @@
 services:
   # PostgreSQL Database - Primary data store
-  postgres:
+  db:
     image: postgres:16-alpine
-    container_name: flowmax-postgres-prod
     ports:
       - "5433:5432"
     environment:
@@ -44,9 +43,8 @@ services:
       retries: 5
 
   # Redis for caching and real-time state
-  redis:
+  redis-cache:
     image: redis:7-alpine
-    container_name: flowmax-redis-prod
     ports:
       - "6379:6379"
     command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
@@ -68,9 +66,8 @@ services:
       retries: 5
 
   # Main Queue Server - Core backend API with PostgreSQL and Redis
-  server:
+  api:
     image: liksoft/flowmax-server:9.1.0
-    container_name: flowmax-server-prod
     ports:
       - "3000:3000"
     environment:
@@ -81,7 +78,7 @@ services:
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
       - NODE_OPTIONS=--max-old-space-size=512
       # PostgreSQL Configuration
-      - DATABASE_HOST=postgres
+      - DATABASE_HOST=db
       - DATABASE_PORT=5433
       - DATABASE_NAME=flowmax-prod
       - DATABASE_USER=${POSTGRES_USER:-flowmax_user}
@@ -91,7 +88,7 @@ services:
       - DATABASE_POOL_MAX=10
       # Redis configuration
       - USE_REDIS=${USE_REDIS:-false}
-      - REDIS_HOST=redis
+      - REDIS_HOST=redis-cache
       - REDIS_PORT=6379
       # SMS Configuration
       - SMS_ENABLED=${SMS_ENABLED:-false}
@@ -127,9 +124,9 @@ services:
     networks:
       - flowmax-prod-network
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
-      redis:
+      redis-cache:
         condition: service_healthy
 
 networks:
