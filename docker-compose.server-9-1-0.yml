@@ -1,0 +1,143 @@
+services:
+  # PostgreSQL Database - Primary data store
+  postgres:
+    image: postgres:16-alpine
+    container_name: flowmax-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_DB=flowmax
+      - POSTGRES_USER=${POSTGRES_USER:-flowmax_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-flowmax_secret_2024}
+      - POSTGRES_HOST_AUTH_METHOD=md5
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=512MB"
+      - "-c"
+      - "work_mem=16MB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "wal_buffers=8MB"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backup:/backup
+    restart: unless-stopped
+    networks:
+      - flowmax-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowmax_user"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and real-time state
+  redis:
+    image: redis:7-alpine
+    container_name: flowmax-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - flowmax-network
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+        reservations:
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # Main Queue Server - Core backend API with PostgreSQL and Redis
+  server:
+    image: liksoft/flowmax-server:9.1.0
+    container_name: flowmax-server
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - COMPANY_NAME=${COMPANY_NAME:-FlowMax}
+      - BASE_URL=${BASE_URL:-http://localhost:3000}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - NODE_OPTIONS=--max-old-space-size=512
+      # PostgreSQL Configuration
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=flowmax
+      - DATABASE_USER=${POSTGRES_USER:-flowmax_user}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-flowmax_secret_2024}
+      - DATABASE_SSL=false
+      - DATABASE_POOL_MIN=2
+      - DATABASE_POOL_MAX=10
+      # Redis configuration
+      - USE_REDIS=${USE_REDIS:-false}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # SMS Configuration
+      - SMS_ENABLED=${SMS_ENABLED:-false}
+      - SMS_API_KEY=${SMS_API_KEY}
+      - SMS_API_SECRET=${SMS_API_SECRET}
+      - SMS_SENDER_ID=${SMS_SENDER_ID:-FlowMax}
+      - SMS_API_ENDPOINT=https://extranet.nghcorp.net/api/send-sms
+      # Security
+      - SESSION_SECRET=${SESSION_SECRET:-your-secret-key-here-change-in-production}
+      - JWT_SECRET=${JWT_SECRET:-your-jwt-secret-here-change-in-production}
+      - TZ=${TZ:-UTC}
+      # GDPR Compliance
+      - GDPR_ENABLED=${GDPR_ENABLED:-true}
+      - GDPR_RETENTION_DAYS=${GDPR_RETENTION_DAYS:-1}
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks:
+      - flowmax-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+networks:
+  flowmax-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
