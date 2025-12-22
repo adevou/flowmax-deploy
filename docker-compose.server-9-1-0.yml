@@ -136,7 +136,7 @@ services:
       - WS_BASE_URL=${WS_BASE_URL:-wss://flowmax.hdl.tg}
       - BASE_URL=${BASE_URL:-https://flowmax.hdl.tg}
     depends_on:
-      - server
+      - api
     restart: unless-stopped
     networks:
       - flowmax-prod-network
