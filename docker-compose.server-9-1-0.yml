@@ -63,7 +63,7 @@ services:
 
   # Main Queue Server - Core backend API with PostgreSQL and Redis
   api:
-    image: liksoft/flowmax-server:9.4.0
+    image: liksoft/flowmax-server:9.5.0
     ports:
       - "3000:3000"
     environment:
