@@ -124,6 +124,33 @@ services:
         condition: service_healthy
       redis-cache:
         condition: service_healthy
+  
+  
+  # Display Web - Public Display Screens
+  display-web:
+    image: liksoft/flowmax-display-web:9.3.0
+    ports:
+      - "4005:80"
+    environment:
+      - API_BASE_URL=${API_BASE_URL:-https://flowmax.hdl.tg}
+      - WS_BASE_URL=${WS_BASE_URL:-wss://flowmax.hdl.tg}
+      - BASE_URL=${BASE_URL:-https://flowmax.hdl.tg}
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - flowmax-prod-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
 
 networks:
   flowmax-prod-network:
