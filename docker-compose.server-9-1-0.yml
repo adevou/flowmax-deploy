@@ -125,7 +125,6 @@ services:
       redis-cache:
         condition: service_healthy
   
-  
   # Display Web - Public Display Screens
   display-web:
     image: liksoft/flowmax-display-web:9.3.0
