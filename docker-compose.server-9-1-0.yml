@@ -156,9 +156,8 @@ services:
   guichet-web:
     image: liksoft/flowmax-guichet-web:9.5.0
     ports:
-      - "4001:3000"
+      - "4001:80"
     environment:
-      - NODE_ENV=production
       - API_BASE_URL=${API_BASE_URL:-https://flowmax.hdl.tg}
       - WS_BASE_URL=${WS_BASE_URL:-wss://flowmax.hdl.tg}
       - BASE_URL=${BASE_URL:-https://flowmax.hdl.tg}
