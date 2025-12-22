@@ -127,7 +127,7 @@ services:
   
   # Display Web - Public Display Screens
   display-web:
-    image: liksoft/flowmax-display-web:9.3.0
+    image: liksoft/flowmax-display-web:9.4.0
     ports:
       - "4005:80"
     environment:
